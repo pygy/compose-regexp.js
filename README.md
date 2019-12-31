@@ -104,16 +104,9 @@ Therefore:
 '\\.\\*'
 ```
 
-The flags of intermediate regexps are ignored, and always reset to false unless set by `flags()`.
+Except for the unicode `u` which is contagious, the flags of intermediate regexps are ignored, and always reset to false unless set by `flags()`.
+You can explicitly set, unset and filter flags using the `flags.{add|remove|keep}()` functions.
 
-#### flags(opts, regexps...), flags(opts)(regexps...)
-
-```JavaScript
-> flags('gm', /a/)
-/a/gm
-> global = flags(g); global('a')
-/a/g
-```
 
 #### either(regexps...) 
 
@@ -212,6 +205,15 @@ whooops = sequence(
 In `whoops`, the `ref(1)` in stringMatcher actually refers to `foo`, not the opening quote.
 
 Fixing this would require an approach far more complex than what I'm doing now (concat the regexps source).
+
+#### flags(opts, regexps...), flags(opts)(regexps...)
+
+```JavaScript
+> flags('gm', /a/)
+/a/gm
+> global = flags(g); global('a')
+/a/g
+```
 
 ## License MIT
 

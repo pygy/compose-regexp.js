@@ -1,6 +1,5 @@
-var o = require('ospec')
-
-var CR = require('../commonjs/compose-regexp')
+import {default as o} from 'ospec'
+import * as CR from ".."
 
 function req(a, b) {
     o(a.source).equals(b.source)((new Error).stack.split('\n')[2])
@@ -61,7 +60,7 @@ o('lookAhead', function(){
     req(lookAhead('a', 'b', 'c'), /(?=abc)/)      
 })
 
-o('captiure', function(){
+o('capture', function(){
     req(capture('a'), /(a)/)
     req(capture('a', 'b'), /(ab)/)
     req(capture('a', 'b', 'c'), /(abc)/)

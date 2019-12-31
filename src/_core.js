@@ -1,19 +1,27 @@
-var empty = new RegExp('')
+import {gatherFlags, flagOp, inter, union} from './_flag-algebra.js'
+import {applyCall, empty, map} from './_util.js'
+
+export {
+    applyCall, sequenceHelper, either, getUnionFlag,
+    isAtomic, suffix, flags
+}
+
+const atomicU = 'unicode' in RegExp.prototype && new RegExp('^(?:\\\\u\{[0-9A-Fa-f]+\}|\\\\?[^])$', 'u')
 
 function normalize (source) {
     if (source instanceof RegExp) return source.source
     else return (source+'').replace(/[.?*+^$[\]\\(){}|-]/g, "\\$&")
 }
 
-// TODO investigate -] in charSets for isSequential and forSequence
-var tokenMatcher = /(\\[^])|\[\-|[-()|\[\]]/g
+// TODO investigate -] in charSets for isSequential and normalizeForSequence
+const tokenMatcher = /(\\[^])|\[\-|[-()|\[\]]/g
 
 // When composing expressions into a sequence, regexps that have a top-level
 // choice operator must be wrapped in a non-capturing group. This function
 // detects whether the group is needed or not.
 export function hasTopLevelChoice(source) {
     if (source.indexOf('|') === -1) return false
-    var depth = 0, inCharSet = false, match
+    let depth = 0, inCharSet = false, match
     tokenMatcher.lastIndex = 0
     while(match = tokenMatcher.exec(source)) {
         if (match[1] != null) continue
@@ -29,7 +37,7 @@ export function hasTopLevelChoice(source) {
 // helper function for isAtomic
 export function isOneGroup(source) {
     if (source.charAt(0) !== '(' || source.charAt(source.length - 1) !== ')') return false
-    var depth = 0, inCharSet = false, match
+    let depth = 0, inCharSet = false, match
     tokenMatcher.lastIndex = 0
     while(match = tokenMatcher.exec(source)) {
         if (match[1] != null) {
@@ -47,7 +55,7 @@ export function isOneGroup(source) {
     return true
 }
 
-function forSequence(source) {
+function normalizeForSequence(source) {
     source = normalize(source)
     return hasTopLevelChoice(source) ? '(?:' + source + ')' : source
 }
@@ -58,77 +66,43 @@ function forSequence(source) {
 // whereas false positives would be bugs. We do ahve some false positives:
 // some charsets will be marked as non-atomic.
 function isAtomic(source) {
-    return source.length === 1 || /^\\[^]$|^\[(?:\\[^]|[^\]])*\]$/.test(source) || isOneGroup(source)
+    return source.length === 1 
+    || (atomicU != null && currentFlags.includes('u') && atomicU.test(source)) 
+    || /^\\[^]$|^\[(?:\\[^]|[^\]])*\]$/.test(source) 
+    || isOneGroup(source)
 }
 
-var map = [].map
-
-export function either() {
-    if (!arguments.length) return empty;
-    return new RegExp(map.call(arguments, normalize).join('|'))
+// Rely on the fact that the combinators are not reentrant
+// and store the common flags in the parent scope.
+// Every core API end point must use keepUnionFlag
+// instead of the bare RegExp constructor.
+let currentFlags;
+function getUnionFlag() {
+    return flagOp(inter, currentFlags, 'u')
 }
 
-function _sequence() {
+function sequenceHelper() {
+    currentFlags = gatherFlags.apply(null, arguments)
     if (arguments.length === 0) return '';
     if (arguments.length === 1) return normalize(arguments[0])
-    return map.call(arguments, forSequence).join('')
+    return map.call(arguments, normalizeForSequence).join('')
 }
 
-export function sequence () {
-    return new RegExp(_sequence.apply(null, arguments))
-}
-
-var validSuffix = sequence(
-    /^/,
-    either(
-        '+', '*', '?',
-        /\{\s*\d+(?:\s*,\s*)?\d*\s*\}/
-    ),
-    /\??$/
-)
-
-var call = _suffix.call
-var push = [].push
-function _suffix(operator) {
+function suffix(operator) {
     if (arguments.length === 1) return empty
-    // an attrocious hack to pass all arguements but the operator to `_sequence()`
-    // without allocating an array. The operator is passed as `this` which is ignored.
-    var res = call.apply(_sequence, arguments)
-    return new RegExp(isAtomic(res) ? res + operator : '(?:' + res + ')' + operator)
+    const res = applyCall(sequenceHelper, arguments)
+    return new RegExp(isAtomic(res) ? res + operator : '(?:' + res + ')' + operator, getUnionFlag())
 }
 
-export function suffix(suffix) {
-    if (!validSuffix.test(suffix)) throw new Error("Invalid suffix '" + suffix+ "'.")
-    return (arguments.length === 1)
-        ? _suffix.bind(null, suffix)
-        : _suffix.apply(null, arguments)
+function flags(opts) {
+    return new RegExp(
+        applyCall(sequenceHelper, arguments),
+        flagOp(union, opts, getUnionFlag())
+    )
 }
 
-export function ref(n) {
-    return new RegExp('\\' + n)
-}
-
-export function lookAhead() {
-    if (!arguments.length) return empty;
-    return new RegExp('(?=' + _sequence.apply(null, arguments) + ')')
-}
-
-export function avoid() {
-    if (!arguments.length) return empty;
-    return new RegExp('(?!' + _sequence.apply(null, arguments) + ')')
-}
-
-function _flags(opts) {
-    return new RegExp(call.apply(_sequence, arguments), opts)
-}
-
-export function flags(opts) {
-    return arguments.length === 1
-    ? _flags.bind(null, opts)
-    : _flags.apply(null, arguments)
-}
-
-export function capture () {
-    if (!arguments.length) return new RegExp('()');
-    return new RegExp('(' + _sequence.apply(null, arguments) + ')')
+// Actually part of the public API, placed here for convenience
+function either() {
+    currentFlags = gatherFlags.apply(null, arguments)
+    return new RegExp(map.call(arguments, normalize).join('|'), getUnionFlag())
 }
