@@ -1,34 +1,24 @@
-import {diff, inter, flagOp, gatherFlags, union} from './_flag-algebra.js'
-import {applyCall} from './_util.js'
+import { compileFlags, currentFlags, diff, inter, parseFlags, union } from './_flag-helpers.js'
+import { sequenceHelper } from './main.js'
 
-export {
-    add,
-    keep,
-    remove
-}
+export { add, keep, remove }
 
 // the actual operation is passed as `this`.
-function exec(flags) {
+function exec(flags, ...args) {
+    const src = sequenceHelper(...args)
     return new RegExp(
-        applyCall(_sequence, arguments),
-        flagOp(this, applyCall(gatherFlags, arguments), flags)
+        src,
+        compileFlags(this(currentFlags, flags))
     )
 }
 
-function add(flags) {
-    return arguments.length === 1
-    ? exec.bind(union, flags)
-    : exec.apply(union, arguments)
+function op(flags, ...args) {
+    const parsed = typeof flags === 'string' ? parseFlags(flags) : flags
+    return args.length === 0
+        ? exec.bind(this, parsed)
+        : exec.call(this, parsed, ...args)
 }
 
-function remove(flags) {
-    return arguments.length === 1
-    ? _unflags.bind(diff, flags)
-    : _unflags.apply(diff, arguments)
-}
-
-function keep(flags) {
-    return arguments.length === 1
-    ? _unflags.bind(inter, flags)
-    : _unflags.apply(inter, arguments)
-}
+const add = op.bind(union)
+const remove = op.bind(diff)
+const keep = op.bind(inter)

@@ -13,10 +13,10 @@
     }
   },
   "scripts": {
-    "test": "gosub cjsify && gosub ospec",
-    "ospec": "node --experimental-conditional-exports ./node_modules/.bin/ospec --module",
+    "test": "gosub cjsify && gosub dupe-tests && ospec --module",
     "build": "gosub cjsify && gosub uglify && gosub gzip",
     "cjsify": "rollup src/export-all.js  -f umd -n composeRegexp -u compose-regexp | buble > commonjs/compose-regexp.js",
+    "dupe-tests": "node ./scripts/make-cjs-tests.js",
     "uglify": "uglifyjs commonjs/compose-regexp.js -cm --preamble '/**@license MIT-compose-regexp.js-©Pierre-Yves Gérardy*/' > dist/compose-regexp.min.js",
     "gzip": "cat dist/compose-regexp.min.js | gzip -9 > dist/compose-regexp.min.js.gz"
   },

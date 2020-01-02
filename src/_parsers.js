@@ -1,16 +1,66 @@
-import {gatherFlags, flagOp, inter, union} from './_flag-algebra.js'
-import {applyCall, empty, map} from './_util.js'
+import {currentFlags} from './_flag-helpers.js'
+export { isAtomic, normalize, normalizeForSequence, validSuffix }
 
-export {
-    applyCall, sequenceHelper, either, getUnionFlag,
-    isAtomic, suffix, flags
-}
+// const maybe = suffix('?')
+// const validSuffix = sequence(
+//     /^/,
+//     either(
+//         '+', '*', '?',
+//         sequence(
+//             '{',
+//             capture(/\d+/),
+//             maybe(
+//                 ',',
+//                  maybe(capture(/\d+/))
+//             ),
+//             '}'
+//         ),
+//     ),
+//     maybe('?'),
+//     /$/
+// )
+const validSuffix = /^(?:\+|\*|\?|\{(\d+)(?:,(\d+)?)?\})\??$/
 
-const atomicU = 'unicode' in RegExp.prototype && new RegExp('^(?:\\\\u\{[0-9A-Fa-f]+\}|\\\\?[^])$', 'u')
+// const atomicUnicode = 'unicode' in RegExp.prototype && flags('u', 
+//     /^/,
+//     either(
+//         sequence('\\u{',/[0-9A-Fa-f]+/,'}'),
+//         /\\?[^]/
+//     ),
+//     /$/
+// )
+const atomicUnicode = 'unicode' in RegExp.prototype 
+    && new RegExp('^(?:\\\\u\\{[0-9A-Fa-f]+\\}|\\\\?[^])$', 'u')
 
-function normalize (source) {
-    if (source instanceof RegExp) return source.source
-    else return (source+'').replace(/[.?*+^$[\]\\(){}|-]/g, "\\$&")
+// const zeroplus = suffix('*')
+// const atomicAscii = sequence(
+//   /^/,
+//   either(
+//     sequence( // Escape sequences
+//       '\\',
+//       either(
+//         /x[0-9A-Fa-f]{0,2}/,
+//         /[^]/
+//       )
+//     ),
+//     // Character sets; know to have been validated by the
+//     // RegExp constructor, so relaxed parsing is OK.
+//     sequence(  
+//       '[',
+//       zeroplus(either(
+//         /\\[^]/,
+//         /[^\]]/
+//       )), 
+//       ']'
+//     )
+//   ),
+//   /$/
+// )
+const atomicAscii = /^(?:\\(?:x[0-9A-Fa-f]{0,2}|[^])|\[(?:\\[^]|[^\]])*\])$/
+
+function normalize (input) {
+    if (input instanceof RegExp) return input.source
+    else return String(input).replace(/[.?*+^$[\\(){|]/g, "\\$&")
 }
 
 // TODO investigate -] in charSets for isSequential and normalizeForSequence
@@ -34,6 +84,11 @@ export function hasTopLevelChoice(source) {
     return false
 }
 
+function normalizeForSequence(source) {
+    source = normalize(source)
+    return hasTopLevelChoice(source) ? '(?:' + source + ')' : source
+}
+
 // helper function for isAtomic
 export function isOneGroup(source) {
     if (source.charAt(0) !== '(' || source.charAt(source.length - 1) !== ')') return false
@@ -55,11 +110,6 @@ export function isOneGroup(source) {
     return true
 }
 
-function normalizeForSequence(source) {
-    source = normalize(source)
-    return hasTopLevelChoice(source) ? '(?:' + source + ')' : source
-}
-
 // Determine if a pattern can take a suffix operator or if a non-capturing group
 // is needed around it.
 // We can safely have false negatives (consequence: useless non-capturing groups)
@@ -67,42 +117,7 @@ function normalizeForSequence(source) {
 // some charsets will be marked as non-atomic.
 function isAtomic(source) {
     return source.length === 1 
-    || (atomicU != null && currentFlags.includes('u') && atomicU.test(source)) 
-    || /^\\[^]$|^\[(?:\\[^]|[^\]])*\]$/.test(source) 
+    || (atomicUnicode && currentFlags.u && atomicUnicode.test(source)) 
+    || atomicAscii.test(source)
     || isOneGroup(source)
-}
-
-// Rely on the fact that the combinators are not reentrant
-// and store the common flags in the parent scope.
-// Every core API end point must use keepUnionFlag
-// instead of the bare RegExp constructor.
-let currentFlags;
-function getUnionFlag() {
-    return flagOp(inter, currentFlags, 'u')
-}
-
-function sequenceHelper() {
-    currentFlags = gatherFlags.apply(null, arguments)
-    if (arguments.length === 0) return '';
-    if (arguments.length === 1) return normalize(arguments[0])
-    return map.call(arguments, normalizeForSequence).join('')
-}
-
-function suffix(operator) {
-    if (arguments.length === 1) return empty
-    const res = applyCall(sequenceHelper, arguments)
-    return new RegExp(isAtomic(res) ? res + operator : '(?:' + res + ')' + operator, getUnionFlag())
-}
-
-function flags(opts) {
-    return new RegExp(
-        applyCall(sequenceHelper, arguments),
-        flagOp(union, opts, getUnionFlag())
-    )
-}
-
-// Actually part of the public API, placed here for convenience
-function either() {
-    currentFlags = gatherFlags.apply(null, arguments)
-    return new RegExp(map.call(arguments, normalize).join('|'), getUnionFlag())
 }

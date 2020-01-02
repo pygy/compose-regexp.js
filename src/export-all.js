@@ -1,5 +1,5 @@
 export {
-    avoid, capture, createScopedCapture, either, flags,
+    avoid, capture, createPseudoNamedCapture, either, flags,
     group, lookAhead, ref, sequence, suffix
 } from './main.js'
 

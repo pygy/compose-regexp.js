@@ -4,18 +4,40 @@
     (factory((global.composeRegexp = {})));
 }(this, function (exports) { 'use strict';
 
-    var empty$1 = new RegExp('')
+    var empty = new RegExp('')
     var hasOwn = ({}).hasOwnProperty
     var map = [].map
 
-    // applyCall(f, arguments) passes all but the first arguments to `f`.
-    // The first argument ends up passed as context (a.k.a. `this`).
-    // so `applyCall(f, [1, 2, 3])` is equivalent to `f.call(1, 2, 3)`
-    // The first argument passed as context is usually ignored in this 
-    // library. Mind melting ES5 alternative to `f(...args)` in
-    // the body of a function with args like this:
-    // (x, ...args) => {/* ... */}
-    var applyCall = map.apply.bind(map.call)
+    // parse/compile
+    // -------------
+
+    function parseFlags(f) {
+        if (f == null) {console.trace();return {}}
+        return f.split('').reduce(function (acc, f) {
+            return (acc[f] = true, acc)
+        }, Object.create(null))
+    }
+
+    function compileFlags(fl) {
+        return Object.keys(fl).join('')
+    }
+
+    // collect the current flags
+    // Rely on the fact that the combinators are not reentrant and store the common 
+    // flags in the root scope.
+    var currentFlags = {}
+
+    function gatherFlags() {
+        currentFlags = map.call(
+                arguments,
+                // input can actually be a non-regexp hence the `|| ''`
+                function (input) { return parseFlags(input.flags || ''); }
+            )
+            .reduce(union, {})
+    }
+
+    // set operations
+    // --------------
 
     function union(a, b) {
         return Object.assign(a, b)
@@ -31,66 +53,66 @@
         return a
     }
 
-    function parseFlags(f) {
-        if (f == null) { return (console.trace(),{}) }
-        return f.split('').reduce(function (acc, f) {
-            return (acc[f] = true, acc)
-        }, {})
-    }
+    // const maybe = suffix('?')
+    // const validSuffix = sequence(
+    //     /^/,
+    //     either(
+    //         '+', '*', '?',
+    //         sequence(
+    //             '{',
+    //             capture(/\d+/),
+    //             maybe(
+    //                 ',',
+    //                  maybe(capture(/\d+/))
+    //             ),
+    //             '}'
+    //         ),
+    //     ),
+    //     maybe('?'),
+    //     /$/
+    // )
+    var validSuffix = /^(?:\+|\*|\?|\{(\d+)(?:,(\d+)?)?\})\??$/
 
-    function flagOp(op, a, b) {
-        return Object.keys(op(parseFlags(a), parseFlags(b))).join('')
-    }
+    // const atomicUnicode = 'unicode' in RegExp.prototype && flags('u', 
+    //     /^/,
+    //     either(
+    //         sequence('\\u{',/[0-9A-Fa-f]+/,'}'),
+    //         /\\?[^]/
+    //     ),
+    //     /$/
+    // )
+    var atomicUnicode = 'unicode' in RegExp.prototype 
+        && new RegExp('^(?:\\\\u\\{[0-9A-Fa-f]+\\}|\\\\?[^])$', 'u')
 
-    function gatherFlags() {
-        return Object.keys(
-            map.call(
-                arguments,
-                // r can actually be a string hence the `|| ''`
-                function (r) { return parseFlags(r.flags || ''); }
-            )
-            .reduce(union, {})
-        ).join('')
-    }
+    // const zeroplus = suffix('*')
+    // const atomicAscii = sequence(
+    //   /^/,
+    //   either(
+    //     sequence( // Escape sequences
+    //       '\\',
+    //       either(
+    //         /x[0-9A-Fa-f]{0,2}/,
+    //         /[^]/
+    //       )
+    //     ),
+    //     // Character sets; know to have been validated by the
+    //     // RegExp constructor, so relaxed parsing is OK.
+    //     sequence(  
+    //       '[',
+    //       zeroplus(either(
+    //         /\\[^]/,
+    //         /[^\]]/
+    //       )), 
+    //       ']'
+    //     )
+    //   ),
+    //   /$/
+    // )
+    var atomicAscii = /^(?:\\(?:x[0-9A-Fa-f]{0,2}|[^])|\[(?:\\[^]|[^\]])*\])$/
 
-    // the actual operation is passed as `this`.
-    function exec(flags) {
-        return new RegExp(
-            applyCall(_sequence, arguments),
-            flagOp(this, applyCall(gatherFlags, arguments), flags)
-        )
-    }
-
-    function add(flags) {
-        return arguments.length === 1
-        ? exec.bind(union, flags)
-        : exec.apply(union, arguments)
-    }
-
-    function remove(flags) {
-        return arguments.length === 1
-        ? _unflags.bind(diff, flags)
-        : _unflags.apply(diff, arguments)
-    }
-
-    function keep(flags) {
-        return arguments.length === 1
-        ? _unflags.bind(inter, flags)
-        : _unflags.apply(inter, arguments)
-    }
-
-
-    var flagOps = Object.freeze({
-        add: add,
-        keep: keep,
-        remove: remove
-    });
-
-    var atomicU = /u/.unicode === false &&  new RegExp('^\\\\?[^]$', 'u')
-
-    function normalize (source) {
-        if (source instanceof RegExp) { return source.source }
-        else { return (source+'').replace(/[.?*+^$[\]\\(){}|-]/g, "\\$&") }
+    function normalize (input) {
+        if (input instanceof RegExp) { return input.source }
+        else { return String(input).replace(/[.?*+^$[\\(){|]/g, "\\$&") }
     }
 
     // TODO investigate -] in charSets for isSequential and normalizeForSequence
@@ -114,6 +136,11 @@
         return false
     }
 
+    function normalizeForSequence(source) {
+        source = normalize(source)
+        return hasTopLevelChoice(source) ? '(?:' + source + ')' : source
+    }
+
     // helper function for isAtomic
     function isOneGroup(source) {
         if (source.charAt(0) !== '(' || source.charAt(source.length - 1) !== ')') { return false }
@@ -135,11 +162,6 @@
         return true
     }
 
-    function normalizeForSequence(source) {
-        source = normalize(source)
-        return hasTopLevelChoice(source) ? '(?:' + source + ')' : source
-    }
-
     // Determine if a pattern can take a suffix operator or if a non-capturing group
     // is needed around it.
     // We can safely have false negatives (consequence: useless non-capturing groups)
@@ -147,66 +169,116 @@
     // some charsets will be marked as non-atomic.
     function isAtomic(source) {
         return source.length === 1 
-        || (atomicU != null && currentFlags.includes('u') && atomicU.test(source)) 
-        || /^\\[^]$|^\[(?:\\[^]|[^\]])*\]$/.test(source) 
+        || (atomicUnicode && currentFlags.u && atomicUnicode.test(source)) 
+        || atomicAscii.test(source)
         || isOneGroup(source)
     }
 
-    // Rely on the fact that the combinators are not reentrant
-    // and store the common flags in the parent scope.
-    // Every core API end point must use keepUnionFlag
-    // instead of the bare RegExp constructor.
-    var currentFlags;
-    function getUnionFlag() {
-        return flagOp(inter, currentFlags, 'u')
+    function keepUnicode() {
+        return currentFlags.u ? 'u' : ''
     }
 
     function sequenceHelper() {
-        currentFlags = gatherFlags.apply(null, arguments)
-        if (arguments.length === 0) { return ''; }
-        if (arguments.length === 1) { return normalize(arguments[0]) }
-        return map.call(arguments, normalizeForSequence).join('')
+        var args = [], len = arguments.length;
+        while ( len-- ) args[ len ] = arguments[ len ];
+
+        gatherFlags.apply(void 0, args)
+        if (args.length === 0) { return '' }
+        if (args.length === 1) { return normalize(args[0]) }
+        return args.map(normalizeForSequence).join('')
     }
 
-    function suffix$1(operator) {
-        if (arguments.length === 1) { return empty$1 }
-        var res = applyCall(sequenceHelper, arguments)
-        return new RegExp(isAtomic(res) ? res + operator : '(?:' + res + ')' + operator, getUnionFlag())
-    }
+    function suffixHelper(operator) {
+        var args = [], len = arguments.length - 1;
+        while ( len-- > 0 ) args[ len ] = arguments[ len + 1 ];
 
-    function flags$1(opts) {
+        if (args.length === 0) { return empty }
+        var res = sequenceHelper.apply(void 0, args)
         return new RegExp(
-            applyCall(sequenceHelper, arguments),
-            flagOp(union, opts, getUnionFlag())
+            isAtomic(res) ? res + operator : '(?:' + res + ')' + operator,
+            keepUnicode()
         )
     }
 
-    // Actually part of the public API, placed here for convenience
+    var uTrue = {u: true}
+    var emptySet = {}
+    function flagsHelper(opts) {
+        var args = [], len = arguments.length - 1;
+        while ( len-- > 0 ) args[ len ] = arguments[ len + 1 ];
+
+        return new RegExp(
+            sequenceHelper.apply(void 0, args),
+            compileFlags(union(parseFlags(opts), currentFlags.u ? uTrue : emptySet))
+        )
+    }
+
+    function avoid() {
+        var args = [], len = arguments.length;
+        while ( len-- ) args[ len ] = arguments[ len ];
+
+        if (args.length === 0) { return empty }
+        return new RegExp('(?!' + sequenceHelper.apply(void 0, args) + ')', keepUnicode())
+    }
+
+    function capture() {
+        var args = [], len = arguments.length;
+        while ( len-- ) args[ len ] = arguments[ len ];
+
+        return new RegExp('(' + sequenceHelper.apply(void 0, args) + ')', keepUnicode())
+    }
+
+    function createPseudoNamedCapture() {
+        var names = {}
+        var i = 0
+        var anonCount = 0
+        function cap(name) {
+            var args = [], len = arguments.length - 1;
+            while ( len-- > 0 ) args[ len ] = arguments[ len + 1 ];
+
+            if (hasOwn.call(names, name)) { throw new Error(("Attempt to redefine " + name)) }
+            names[name] = ++i
+            i += anonCount
+            anonCount = 0
+            return capture.apply(void 0, args)
+        }
+        function nestedAnon() {
+            var args = [], len = arguments.length;
+            while ( len-- ) args[ len ] = arguments[ len ];
+
+            anonCount++
+            return capture.apply(void 0, args)
+        }
+        return {names: names, capture: cap, nestedAnon: nestedAnon}
+    }
+
     function either() {
-        currentFlags = gatherFlags.apply(null, arguments)
-        return new RegExp(map.call(arguments, normalize).join('|'), getUnionFlag())
+        var args = [], len = arguments.length;
+        while ( len-- ) args[ len ] = arguments[ len ];
+
+        gatherFlags.apply(void 0, args)
+        return new RegExp(args.map(normalize).join('|'), keepUnicode())
     }
 
-    var empty = new RegExp('')
+    // Let the RegExp constructor handle flags validation
+    // so that partially applied functions can be created
+    // without worrying about compatibility.
+    function flags(opts) {
+        var args = [], len = arguments.length - 1;
+        while ( len-- > 0 ) args[ len ] = arguments[ len + 1 ];
 
-    function sequence () {
-        return new RegExp(sequenceHelper.apply(null, arguments), getUnionFlag())
+        return args.length === 0
+            ? flagsHelper.bind(null, opts)
+            : flagsHelper.apply(void 0, [ opts ].concat( args ))
     }
 
-    var validSuffix = sequence(
-        /^/,
-        either(
-            '+', '*', '?',
-            /\{\s*\d+(?:\s*,\s*)?\d*\s*\}/
-        ),
-        /\??$/
-    )
+    var group = suffixHelper.bind(null, '')
 
-    function suffix(suffix) {
-        if (!validSuffix.test(suffix)) { throw new Error(("Invalid suffix '" + suffix + "'.")) }
-        return (arguments.length === 1)
-            ? suffix$1.bind(null, suffix)
-            : suffix$1.apply(null, arguments)
+    function lookAhead() {
+        var args = [], len = arguments.length;
+        while ( len-- ) args[ len ] = arguments[ len ];
+
+        if (args.length === 0) { return empty }
+        return new RegExp('(?=' + sequenceHelper.apply(void 0, args) + ')', keepUnicode())
     }
 
     function ref(n) {
@@ -214,51 +286,64 @@
         return new RegExp('\\' + n)
     }
 
-    function lookAhead() {
-        if (!arguments.length) { return empty; }
-        return new RegExp('(?=' + sequenceHelper.apply(null, arguments) + ')', getUnionFlag())
+    function sequence() {
+        var args = [], len = arguments.length;
+        while ( len-- ) args[ len ] = arguments[ len ];
+
+        return new RegExp(sequenceHelper.apply(void 0, args), keepUnicode())
     }
 
-    function avoid() {
-        if (!arguments.length) { return empty; }
-        return new RegExp('(?!' + sequenceHelper.apply(null, arguments) + ')', getUnionFlag())
-    }
+    function suffix(suffix) {
+        var args = [], len = arguments.length - 1;
+        while ( len-- > 0 ) args[ len ] = arguments[ len + 1 ];
 
-    var group = suffix$1.bind(null, '')
-
-    function flags(opts) {
-        return arguments.length === 1
-        ? flags$1.bind(null, opts)
-        : flags$1.apply(null, arguments)
-    }
-
-    function capture() {
-        return new RegExp('(' + sequenceHelper.apply(null, arguments) + ')', getUnionFlag())
-    }
-
-    function createScopedCapture(ns) {
-        if ( ns === void 0 ) ns = {};
-
-        var i = 1;
-        var anonCount = 0
-        function capture(name) {
-            if (hasOwn.call(ns, name)) { throw new RangeError(("Attempt to redefine " + name)) }
-            ns[name] = i++
-            i += anonCount
-            anonCount = 0
-            return applyCall(coreCapture, arguments)
+        var m = validSuffix.exec(suffix)
+        if (m == null) { throw new SyntaxError(("Invalid suffix '" + suffix + "'.")) }
+        if (m[1] != null && m[2] != null && Number(m[1]) > Number(m[2])) {
+            throw new SyntaxError(("numbers out of order in " + suffix + " quantifier."))
         }
-        function nestedAnon() {
-            anonCount++
-            return capture.apply(null, arguments)
-        }
-        return {ns: ns, capture: capture, nestedAnon: nestedAnon}
+        return (args.length === 0)
+            ? suffixHelper.bind(null, suffix)
+            : suffixHelper.apply(void 0, [ suffix ].concat( args ))
     }
+
+    // the actual operation is passed as `this`.
+    function exec(flags) {
+        var args = [], len = arguments.length - 1;
+        while ( len-- > 0 ) args[ len ] = arguments[ len + 1 ];
+
+        var src = sequenceHelper.apply(void 0, args)
+        return new RegExp(
+            src,
+            compileFlags(this(currentFlags, flags))
+        )
+    }
+
+    function op(flags) {
+        var args = [], len = arguments.length - 1;
+        while ( len-- > 0 ) args[ len ] = arguments[ len + 1 ];
+
+        var parsed = typeof flags === 'string' ? parseFlags(flags) : flags
+        return args.length === 0
+            ? exec.bind(this, parsed)
+            : exec.call.apply(exec, [ this, parsed ].concat( args ))
+    }
+
+    var add = op.bind(union)
+    var remove = op.bind(diff)
+    var keep = op.bind(inter)
+
+
+    var flagOps = Object.freeze({
+        add: add,
+        keep: keep,
+        remove: remove
+    });
 
     exports.flagOps = flagOps;
     exports.avoid = avoid;
     exports.capture = capture;
-    exports.createScopedCapture = createScopedCapture;
+    exports.createPseudoNamedCapture = createPseudoNamedCapture;
     exports.either = either;
     exports.flags = flags;
     exports.group = group;

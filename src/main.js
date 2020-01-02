@@ -1,63 +1,87 @@
+import { compileFlags, gatherFlags, parseFlags, union, currentFlags } from './_flag-helpers.js'
+import { isAtomic, normalize, normalizeForSequence, validSuffix } from './_parsers.js'
+import { empty, hasOwn, map } from './_util.js'
 
-import * as C from './_core.js'
-import {applyCall, hasOwn, empty} from './_util.js'
+// dep for FlagOps
+export { sequenceHelper }
+// Public API
+export { avoid, capture, createPseudoNamedCapture, either, flags, group, lookAhead, ref, sequence, suffix }
 
-import {either} from './_core.js'
-
-export {
-    avoid, capture, createScopedCapture, either, flags,
-    group, lookAhead, ref, sequence, suffix
+function keepUnicode() {
+    return currentFlags.u ? 'u' : ''
 }
 
-
-const validSuffix = sequence(
-    /^/,
-    either(
-        '+', '*', '?',
-        /\{\s*\d+(?:\s*,\s*)?\d*\s*\}/ // ?? /\{\s*\d+\s*(?:,\s*\d*\s*)?\}/ ??
-    ),
-    /\??$/
-)
-
-function avoid() {
-    if (!arguments.length) return empty;
-    return new RegExp('(?!' + C.sequenceHelper.apply(null, arguments) + ')', C.getUnionFlag())
+function sequenceHelper(...args) {
+    gatherFlags(...args)
+    if (args.length === 0) return ''
+    if (args.length === 1) return normalize(args[0])
+    return args.map(normalizeForSequence).join('')
 }
 
-function capture() {
-    return new RegExp('(' + C.sequenceHelper.apply(null, arguments) + ')', C.getUnionFlag())
+function suffixHelper(operator, ...args) {
+    if (args.length === 0) return empty
+    const res = sequenceHelper(...args)
+    return new RegExp(
+        isAtomic(res) ? res + operator : '(?:' + res + ')' + operator,
+        keepUnicode()
+    )
 }
 
-function createScopedCapture(ns = {}) {
-    let i = 1;
+const uTrue = {u: true}
+const emptySet = {}
+function flagsHelper(opts, ...args) {
+    return new RegExp(
+        sequenceHelper(...args),
+        compileFlags(union(parseFlags(opts), currentFlags.u ? uTrue : emptySet))
+    )
+}
+
+function avoid(...args) {
+    if (args.length === 0) return empty
+    return new RegExp('(?!' + sequenceHelper(...args) + ')', keepUnicode())
+}
+
+function capture(...args) {
+    return new RegExp('(' + sequenceHelper(...args) + ')', keepUnicode())
+}
+
+function createPseudoNamedCapture() {
+    const names = {}
+    let i = 0
     let anonCount = 0
-    function capture(name) {
-        if (hasOwn.call(ns, name)) throw new RangeError(`Attempt to redefine ${name}`)
-        ns[name] = i++
+    function cap(name, ...args) {
+        if (hasOwn.call(names, name)) throw new Error(`Attempt to redefine ${name}`)
+        names[name] = ++i
         i += anonCount
         anonCount = 0
-        return applyCall(coreCapture, arguments)
+        return capture(...args)
     }
-    function nestedAnon() {
+    function nestedAnon(...args) {
         anonCount++
-        return capture.apply(null, arguments)
+        return capture(...args)
     }
-    return {ns, capture, nestedAnon}
+    return {names, capture: cap, nestedAnon}
 }
 
-// either is actually defined in _core
-
-function flags(opts) {
-    return arguments.length === 1
-    ? C.flags.bind(null, opts)
-    : C.flags.apply(null, arguments)
+function either(...args) {
+    gatherFlags(...args)
+    return new RegExp(args.map(normalize).join('|'), keepUnicode())
 }
 
-const group = C.suffix.bind(null, '')
+// Let the RegExp constructor handle flags validation
+// so that partially applied functions can be created
+// without worrying about compatibility.
+function flags(opts, ...args) {
+    return args.length === 0
+        ? flagsHelper.bind(null, opts)
+        : flagsHelper(opts, ...args)
+}
 
-function lookAhead() {
-    if (!arguments.length) return empty;
-    return new RegExp('(?=' + C.sequenceHelper.apply(null, arguments) + ')', C.getUnionFlag())
+const group = suffixHelper.bind(null, '')
+
+function lookAhead(...args) {
+    if (args.length === 0) return empty
+    return new RegExp('(?=' + sequenceHelper(...args) + ')', keepUnicode())
 }
 
 function ref(n) {
@@ -65,14 +89,17 @@ function ref(n) {
     return new RegExp('\\' + n)
 }
 
-function sequence () {
-    return new RegExp(C.sequenceHelper.apply(null, arguments), C.getUnionFlag())
+function sequence(...args) {
+    return new RegExp(sequenceHelper(...args), keepUnicode())
 }
 
-function suffix(suffix) {
-    if (!validSuffix.test(suffix)) throw new Error(`Invalid suffix '${suffix}'.`)
-    return (arguments.length === 1)
-        ? C.suffix.bind(null, suffix)
-        : C.suffix.apply(null, arguments)
+function suffix(suffix, ...args) {
+    const m = validSuffix.exec(suffix)
+    if (m == null) throw new SyntaxError(`Invalid suffix '${suffix}'.`)
+    if (m[1] != null && m[2] != null && Number(m[1]) > Number(m[2])) {
+        throw new SyntaxError(`numbers out of order in ${suffix} quantifier.`)
+    }
+    return (args.length === 0)
+        ? suffixHelper.bind(null, suffix)
+        : suffixHelper(suffix, ...args)
 }
-

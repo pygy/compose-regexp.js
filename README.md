@@ -105,7 +105,7 @@ Therefore:
 ```
 
 Except for the unicode `u` which is contagious, the flags of intermediate regexps are ignored, and always reset to false unless set by `flags()`.
-You can explicitly set, unset and filter flags using the `flags.{add|remove|keep}()` functions.
+You can explicitly set, unset and filter flags using the `flagOps.{add|remove|keep}()` functions.
 
 
 #### either(regexps...) 
