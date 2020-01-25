@@ -43,5 +43,8 @@
     "ospec": "pygy/ospec#module-and-parallel",
     "rollup": "^0.24.0",
     "uglify-js": "^2.6.1"
+  },
+  "dependencies": {
+    "standard": "^14.3.1"
   }
 }
