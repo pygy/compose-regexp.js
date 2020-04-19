@@ -8,8 +8,8 @@
   "jsnext:main": "compose-regexp.mjs",
   "exports": {
     ".": {
-      "require": "commonjs/compose-regexp.js",
-      "default": "compose-regexp.js"
+      "require": "./commonjs/compose-regexp.js",
+      "default": "./compose-regexp.js"
     }
   },
   "scripts": {
